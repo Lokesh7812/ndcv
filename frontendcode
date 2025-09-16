@@ -1,0 +1,175 @@
+pages
+CveDetails.js
+import React, { useEffect, useState } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { fetchCveDetail } from '../api';
+
+export default function CveDetail() {
+  const { id } = useParams();
+  const [cve, setCve] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await fetchCveDetail(id);
+        setCve(data);
+      } catch (e) {
+        console.error(e);
+        setCve(null);
+      }
+    })();
+  }, [id]);
+
+  if (!cve) return <div style={{ padding: 20 }}>Loading or not found... <div><Link to="/cves/list">Back to list</Link></div></div>;
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>{cve.cveId}</h2>
+      <div><strong>Description:</strong><p>{cve.description}</p></div>
+      <div>
+        <strong>CVSS V3:</strong> {cve.cvssV3 ?? 'N/A'} <br/>
+        <strong>CVSS V2:</strong> {cve.cvssV2 ?? 'N/A'}
+      </div>
+      <div style={{ marginTop: 12 }}>
+        <strong>Published:</strong> {cve.publishedDate ? new Date(cve.publishedDate).toLocaleString() : 'N/A'} <br/>
+        <strong>Last Modified:</strong> {cve.lastModifiedDate ? new Date(cve.lastModifiedDate).toLocaleString() : 'N/A'}
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <strong>Raw JSON:</strong>
+        <pre style={{ maxHeight: 400, overflow: 'auto', background: '#f7f7f7', padding: 10 }}>{JSON.stringify(cve.raw, null, 2)}</pre>
+      </div>
+
+      <div><Link to="/cves/list">Back to list</Link></div>
+    </div>
+  );
+}
+
+
+
+
+
+
+CveList.js
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { fetchCves } from '../api';
+
+export default function CveList() {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [perPage, setPerPage] = useState(10);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  async function load(p = 1, per = perPage) {
+    setLoading(true);
+    try {
+      const data = await fetchCves({ page: p, per_page: per });
+      setItems(data.items || []);
+      setTotal(data.total || 0);
+      setPage(data.page || 1);
+    } catch (e) {
+      console.error(e);
+      alert('Failed to load CVEs');
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => { load(1); }, [perPage]);
+
+  const totalPages = Math.max(1, Math.ceil(total / perPage));
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h1 style={{ textAlign: 'center' }}>CVE LIST</h1>
+      <div>Total Records: {total}</div>
+
+      <div style={{ marginTop: 8 }}>
+        Results per page:
+        <select value={perPage} onChange={e => setPerPage(Number(e.target.value))} style={{ marginLeft: 6 }}>
+          <option value={10}>10</option>
+          <option value={50}>50</option>
+          <option value={100}>100</option>
+        </select>
+      </div>
+
+      <table border="1" cellPadding="6" style={{ width: '100%', marginTop: 12, borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            <th>CVE ID</th>
+            <th>Description</th>
+            <th>Published Date</th>
+            <th>Last Modified</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <tr><td colSpan="4">Loading...</td></tr>
+          ) : items.length === 0 ? (
+            <tr><td colSpan="4">No records</td></tr>
+          ) : items.map(it => (
+            <tr key={it.cveId} style={{ cursor: 'pointer' }} onClick={() => navigate(`/cves/${it.cveId}`)}>
+              <td>{it.cveId}</td>
+              <td style={{ maxWidth: 600 }}>{it.description ? it.description.slice(0, 150) + (it.description.length > 150 ? '...' : '') : ''}</td>
+              <td>{it.publishedDate ? new Date(it.publishedDate).toLocaleDateString() : ''}</td>
+              <td>{it.lastModifiedDate ? new Date(it.lastModifiedDate).toLocaleDateString() : ''}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{ marginTop: 10 }}>
+        Page {page} of {totalPages}
+        <button disabled={page <= 1} onClick={() => load(page - 1, perPage)} style={{ marginLeft: 8 }}>Prev</button>
+        <button disabled={page >= totalPages} onClick={() => load(page + 1, perPage)} style={{ marginLeft: 8 }}>Next</button>
+      </div>
+    </div>
+  );
+}
+
+
+
+
+api.js
+
+const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:4000/api';
+
+export async function fetchCves({ page=1, per_page=10, year, min_score, sortBy, order }) {
+  const params = new URLSearchParams({ page, per_page: per_page });
+  if (year) params.append('year', year);
+  if (min_score) params.append('min_score', min_score);
+  if (sortBy) params.append('sortBy', sortBy);
+  if (order) params.append('order', order);
+  const res = await fetch(`${API_BASE}/cves?${params.toString()}`);
+  if (!res.ok) throw new Error('Failed to fetch CVEs');
+  return res.json();
+}
+
+export async function fetchCveDetail(cveId) {
+  const res = await fetch(`${API_BASE}/cves/${encodeURIComponent(cveId)}`);
+  if (!res.ok) throw new Error('CVE not found');
+  return res.json();
+}
+
+
+
+app.js
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import CveList from './pages/CveList';
+import CveDetail from './pages/CveDetail';
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Navigate to="/cves/list" replace />} />
+        <Route path="/cves/list" element={<CveList />} />
+        <Route path="/cves/:id" element={<CveDetail />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+export default App;
